@@ -1,0 +1,653 @@
+local cloneref = cloneref or function(x) return x end
+
+local Players = cloneref(game:GetService("Players"))
+local RunService = cloneref(game:GetService("RunService"))
+local Workspace = cloneref(game:GetService("Workspace"))
+local UserInputService = cloneref(game:GetService("UserInputService"))
+local TweenService = cloneref(game:GetService("TweenService"))
+
+local player = Players.LocalPlayer
+local mouse = player:GetMouse()
+
+local character, humanoid, rootPart, head, rigType, isAlive
+
+local Signal = {}
+Signal.__index = Signal
+
+function Signal.new()
+	return setmetatable({
+		_connections = {},
+		_waiters = {}
+	}, Signal)
+end
+
+function Signal:Connect(callback)
+	local conn = { Callback = callback, Connected = true }
+	table.insert(self._connections, conn)
+	return {
+		Disconnect = function()
+			conn.Connected = false
+			for i, v in ipairs(self._connections) do
+				if v == conn then
+					table.remove(self._connections, i)
+					break
+				end
+			end
+		end
+	}
+end
+
+function Signal:Once(callback)
+	local connection
+	connection = self:Connect(function(...)
+		connection:Disconnect()
+		callback(...)
+	end)
+	return connection
+end
+
+function Signal:Wait()
+	local co = coroutine.running()
+	table.insert(self._waiters, co)
+	return coroutine.yield()
+end
+
+function Signal:Fire(...)
+	for _, conn in ipairs(self._connections) do
+		if conn.Connected then
+			task.spawn(conn.Callback, ...)
+		end
+	end
+	local waiters = self._waiters
+	self._waiters = {}
+	for _, co in ipairs(waiters) do
+		coroutine.resume(co, ...)
+	end
+end
+
+local Entity = {}
+Entity.CharacterAdded = Signal.new()
+Entity.OnDied = Signal.new()
+Entity.OnDamaged = Signal.new()
+Entity.OnJump = Signal.new()
+Entity.OnMoving = Signal.new()
+Entity.OnGrounded = Signal.new()
+Entity.OnStateChanged = Signal.new()
+Entity.CharacterRemoving = Signal.new()
+
+local partMap = {
+	R15 = {
+		Head = "Head",
+		Torso = "UpperTorso",
+		LowerTorso = "LowerTorso",
+		LeftArm = "LeftUpperArm",
+		RightArm = "RightUpperArm",
+		LeftLeg = "LeftUpperLeg",
+		RightLeg = "RightUpperLeg"
+	},
+	R6 = {
+		Head = "Head",
+		Torso = "Torso",
+		LeftArm = "Left Arm",
+		RightArm = "Right Arm",
+		LeftLeg = "Left Leg",
+		RightLeg = "Right Leg"
+	}
+}
+
+local otherCharacters = setmetatable({}, {__mode = "v"})
+local playerListeners = {}
+
+local function trackPlayer(plr)
+	if plr == player then return end
+	local function onCharAdded(char)
+		otherCharacters[plr] = char
+	end
+	local function onCharRemoving()
+		otherCharacters[plr] = nil
+	end
+	playerListeners[plr] = {
+		Added = plr.CharacterAdded:Connect(onCharAdded),
+		Removing = plr.CharacterRemoving:Connect(onCharRemoving)
+	}
+	if plr.Character then
+		onCharAdded(plr.Character)
+	end
+end
+
+local function untrackPlayer(plr)
+	local listeners = playerListeners[plr]
+	if listeners then
+		listeners.Added:Disconnect()
+		listeners.Removing:Disconnect()
+		playerListeners[plr] = nil
+	end
+	otherCharacters[plr] = nil
+end
+
+for _, plr in ipairs(Players:GetPlayers()) do
+	trackPlayer(plr)
+end
+Players.PlayerAdded:Connect(function(plr)
+	trackPlayer(plr)
+end)
+Players.PlayerRemoving:Connect(function(plr)
+	untrackPlayer(plr)
+end)
+
+local humanoidConnections = {}
+
+local function disconnectHumanoidConnections()
+	for _, conn in ipairs(humanoidConnections) do
+		conn:Disconnect()
+	end
+	table.clear(humanoidConnections)
+end
+
+local lastHealth, lastFloor, lastState, lastMove
+
+local function connectHumanoidEvents()
+	disconnectHumanoidConnections()
+	if not humanoid then return end
+
+	local hum = humanoid
+	lastHealth = hum.Health
+	lastFloor = hum.FloorMaterial
+	lastState = hum:GetState()
+	lastMove = hum.MoveDirection.Magnitude > 0
+
+	local c1 = hum.HealthChanged:Connect(function(newHealth)
+		if newHealth < lastHealth then
+			Entity.OnDamaged:Fire(lastHealth - newHealth)
+		end
+		lastHealth = newHealth
+	end)
+	local c2 = hum.StateChanged:Connect(function(_, newState)
+		Entity.OnStateChanged:Fire(newState)
+		if newState == Enum.HumanoidStateType.Jumping then
+			Entity.OnJump:Fire()
+		end
+		lastState = newState
+	end)
+	local c3 = hum.Running:Connect(function()
+		local moving = hum.MoveDirection.Magnitude > 0
+		if moving ~= lastMove then
+			Entity.OnMoving:Fire(moving)
+			lastMove = moving
+		end
+	end)
+	local c4 = hum:GetPropertyChangedSignal("FloorMaterial"):Connect(function()
+		local grounded = hum.FloorMaterial ~= Enum.Material.Air
+		if grounded ~= (lastFloor ~= Enum.Material.Air) then
+			Entity.OnGrounded:Fire(grounded)
+			lastFloor = hum.FloorMaterial
+		end
+	end)
+
+	table.insert(humanoidConnections, c1)
+	table.insert(humanoidConnections, c2)
+	table.insert(humanoidConnections, c3)
+	table.insert(humanoidConnections, c4)
+end
+
+local function detectRig(char)
+	if char:FindFirstChild("UpperTorso") then return "R15" end
+	if char:FindFirstChild("Torso") then return "R6" end
+	return "Unknown"
+end
+
+local function refresh(newChar)
+	disconnectHumanoidConnections()
+
+	character = newChar or nil
+	if character then
+		humanoid = character:FindFirstChild("Humanoid")
+		rootPart = character:FindFirstChild("HumanoidRootPart")
+		head = character:FindFirstChild("Head")
+		rigType = detectRig(character)
+		isAlive = character.Parent and rootPart and humanoid and humanoid.Parent and humanoid.Health > 0
+		connectHumanoidEvents()
+		Entity.CharacterAdded:Fire(character)
+	else
+		humanoid, rootPart, head, rigType, isAlive = nil, nil, nil, nil, false
+		Entity.OnDied:Fire()
+	end
+end
+
+player.CharacterAdded:Connect(refresh)
+player.CharacterRemoving:Connect(function()
+	Entity.CharacterRemoving:Fire(character)
+	refresh(nil)
+end)
+
+if player.Character then
+	refresh(player.Character)
+end
+
+RunService.Heartbeat:Connect(function()
+	if humanoid then
+		if not isAlive and humanoid.Health > 0 then
+			isAlive = true
+		elseif isAlive and humanoid.Health <= 0 then
+			isAlive = false
+			Entity.OnDied:Fire()
+		end
+	end
+end)
+
+function Entity.GetCharacter()
+	return character
+end
+
+function Entity.GetPart(name)
+	local char = character
+	if not char then return nil end
+	local map = partMap[rigType]
+	if not map then return nil end
+	return char:FindFirstChild(map[name])
+end
+
+function Entity.GetTorso()
+	return Entity.GetPart("Torso") or (character and character:FindFirstChild("Torso"))
+end
+
+function Entity.GetHumanoid()
+	return humanoid
+end
+
+function Entity.GetRootPart()
+	return rootPart
+end
+
+function Entity.GetHead()
+	return head
+end
+
+function Entity.GetPosition()
+	return rootPart and rootPart.Position
+end
+
+function Entity.GetCFrame()
+	return rootPart and rootPart.CFrame
+end
+
+function Entity.GetLookVector()
+	return rootPart and rootPart.CFrame.LookVector
+end
+
+function Entity.GetHealth()
+	return humanoid and humanoid.Health
+end
+
+function Entity.GetMaxHealth()
+	return humanoid and humanoid.MaxHealth
+end
+
+function Entity.GetDistanceFrom(position)
+	if not rootPart then return 0 end
+	return (rootPart.Position - position).Magnitude
+end
+
+function Entity.GetMagnitudeFrom(position)
+	return Entity.GetDistanceFrom(position)
+end
+
+function Entity.GetBoundingBox()
+	if not character then return nil end
+	local parts = Entity.GetCharacterParts()
+	if #parts == 0 then return nil end
+	local minX, minY, minZ = math.huge, math.huge, math.huge
+	local maxX, maxY, maxZ = -math.huge, -math.huge, -math.huge
+	for _, part in ipairs(parts) do
+		local cf = part.CFrame
+		local size = part.Size / 2
+		local corners = {
+			(cf * CFrame.new(size.X, size.Y, size.Z)).Position,
+			(cf * CFrame.new(-size.X, size.Y, size.Z)).Position,
+			(cf * CFrame.new(size.X, -size.Y, size.Z)).Position,
+			(cf * CFrame.new(size.X, size.Y, -size.Z)).Position,
+			(cf * CFrame.new(-size.X, -size.Y, size.Z)).Position,
+			(cf * CFrame.new(size.X, -size.Y, -size.Z)).Position,
+			(cf * CFrame.new(-size.X, size.Y, -size.Z)).Position,
+			(cf * CFrame.new(-size.X, -size.Y, -size.Z)).Position
+		}
+		for _, corner in ipairs(corners) do
+			minX = math.min(minX, corner.X)
+			minY = math.min(minY, corner.Y)
+			minZ = math.min(minZ, corner.Z)
+			maxX = math.max(maxX, corner.X)
+			maxY = math.max(maxY, corner.Y)
+			maxZ = math.max(maxZ, corner.Z)
+		end
+	end
+	return CFrame.new(
+		(minX + maxX) / 2,
+		(minY + maxY) / 2,
+		(minZ + maxZ) / 2
+	), Vector3.new(maxX - minX, maxY - minY, maxZ - minZ)
+end
+
+function Entity.GetCharacterSize()
+	if not rootPart then return Vector3.zero end
+	local _, size = Entity.GetBoundingBox()
+	return size or Vector3.zero
+end
+
+function Entity.GetCharacterParts()
+	if not character then return {} end
+	local parts = {}
+	for _, v in ipairs(character:GetChildren()) do
+		if v:IsA("BasePart") then
+			table.insert(parts, v)
+		end
+	end
+	return parts
+end
+
+function Entity.GetRigParts()
+	local parts = {}
+	for name, _ in pairs(partMap[rigType] or {}) do
+		local part = Entity.GetPart(name)
+		if part then
+			parts[name] = part
+		end
+	end
+	return parts
+end
+
+function Entity.GetLimb(name)
+	return Entity.GetPart(name)
+end
+
+function Entity.SetWalkSpeed(speed)
+	if humanoid then humanoid.WalkSpeed = speed end
+end
+
+function Entity.SetJumpPower(power)
+	if humanoid then humanoid.JumpPower = power end
+end
+
+function Entity.Jump()
+	if humanoid and humanoid.FloorMaterial ~= Enum.Material.Air then
+		humanoid.Jump = true
+	end
+end
+
+function Entity.Sit(toggle)
+	if humanoid then humanoid.Sit = toggle end
+end
+
+function Entity.Stun(duration)
+	if humanoid then
+		humanoid.PlatformStand = true
+		if duration then
+			task.delay(duration, function()
+				if humanoid then humanoid.PlatformStand = false end
+			end)
+		end
+	end
+end
+
+function Entity.UnStun()
+	if humanoid then humanoid.PlatformStand = false end
+end
+
+function Entity.IsAlive()
+	return isAlive
+end
+
+function Entity.GetState()
+	return humanoid and humanoid:GetState()
+end
+
+function Entity.IsGrounded()
+	return humanoid and humanoid.FloorMaterial ~= Enum.Material.Air
+end
+
+function Entity.IsMoving()
+	return humanoid and humanoid.MoveDirection.Magnitude > 0
+end
+
+function Entity.IsFalling()
+	local state = Entity.GetState()
+	return state == Enum.HumanoidStateType.Freefall
+end
+
+function Entity.IsJumping()
+	local state = Entity.GetState()
+	return state == Enum.HumanoidStateType.Jumping
+end
+
+function Entity.IsSwimming()
+	local state = Entity.GetState()
+	return state == Enum.HumanoidStateType.Swimming
+end
+
+function Entity.IsClimbing()
+	local state = Entity.GetState()
+	return state == Enum.HumanoidStateType.Climbing
+end
+
+function Entity.IsSeated()
+	local state = Entity.GetState()
+	return state == Enum.HumanoidStateType.Seated
+end
+
+function Entity.IsFreeFalling()
+	return Entity.IsFalling()
+end
+
+function Entity.GetVelocity()
+	return rootPart and rootPart.AssemblyLinearVelocity or Vector3.zero
+end
+
+function Entity.GetHorizontalSpeed()
+	local v = Entity.GetVelocity()
+	return Vector3.new(v.X, 0, v.Z).Magnitude
+end
+
+function Entity.GetMoveDirection()
+	return humanoid and humanoid.MoveDirection or Vector3.zero
+end
+
+function Entity.AddForce(force)
+	if rootPart then rootPart:ApplyForce(force) end
+end
+
+function Entity.ApplyImpulse(impulse)
+	if rootPart then rootPart:ApplyImpulse(impulse) end
+end
+
+function Entity.SetVelocity(velocity)
+	if rootPart then rootPart.AssemblyLinearVelocity = velocity end
+end
+
+function Entity.Teleport(position)
+	if rootPart then
+		if typeof(position) == "Vector3" then
+			rootPart.CFrame = CFrame.new(position)
+		elseif typeof(position) == "CFrame" then
+			rootPart.CFrame = position
+		end
+	end
+end
+
+function Entity.MoveTo(position)
+	if humanoid then humanoid:MoveTo(position) end
+end
+
+function Entity.GetCamera()
+	return Workspace.CurrentCamera
+end
+
+function Entity.GetMouseHit()
+	return mouse.Hit
+end
+
+function Entity.GetMouseTarget()
+	return mouse.Target
+end
+
+function Entity.RaycastFromCharacter(direction, ignoreList)
+	if not rootPart then return nil end
+	local params = RaycastParams.new()
+	params.FilterDescendantsInstances = ignoreList or {character}
+	params.FilterType = Enum.RaycastFilterType.Blacklist
+	return Workspace:Raycast(rootPart.Position, direction, params)
+end
+
+function Entity.Freeze()
+	if rootPart then rootPart.Anchored = true end
+end
+
+function Entity.Unfreeze()
+	if rootPart then rootPart.Anchored = false end
+end
+
+function Entity.DisableJump()
+	if humanoid then humanoid.JumpPower = 0 end
+end
+
+function Entity.EnableJump(power)
+	if humanoid then humanoid.JumpPower = power or 50 end
+end
+
+function Entity.LockMovement()
+	if humanoid then
+		humanoid.WalkSpeed = 0
+		humanoid.JumpPower = 0
+	end
+end
+
+function Entity.UnlockMovement(walkSpeed, jumpPower)
+	if humanoid then
+		humanoid.WalkSpeed = walkSpeed or 16
+		humanoid.JumpPower = jumpPower or 50
+	end
+end
+
+function Entity.GetRigType()
+	return rigType
+end
+
+function Entity.IsTeammate(plr)
+	return plr and player and plr.Team == player.Team
+end
+
+function Entity.IsEnemy(plr)
+	return plr and player and not Entity.IsTeammate(plr)
+end
+
+function Entity.GetNearestPlayer(range, ignoreTeam)
+	local nearest = nil
+	local shortest = range or math.huge
+	for other, char in pairs(otherCharacters) do
+		if char and char.Parent and char:FindFirstChild("HumanoidRootPart") then
+			if not (ignoreTeam and Entity.IsTeammate(other)) then
+				local pos = char.HumanoidRootPart.Position
+				local dist = (pos - (rootPart and rootPart.Position or Vector3.zero)).Magnitude
+				if dist < shortest then
+					shortest = dist
+					nearest = other
+				end
+			end
+		end
+	end
+	return nearest
+end
+
+function Entity.GetNearestCharacter(range, ignoreTeam)
+	local nearest = nil
+	local shortest = range or math.huge
+	for other, char in pairs(otherCharacters) do
+		if char and char.Parent and char:FindFirstChild("HumanoidRootPart") then
+			if not (ignoreTeam and Entity.IsTeammate(other)) then
+				local pos = char.HumanoidRootPart.Position
+				local dist = (pos - (rootPart and rootPart.Position or Vector3.zero)).Magnitude
+				if dist < shortest then
+					shortest = dist
+					nearest = char
+				end
+			end
+		end
+	end
+	return nearest
+end
+
+function Entity.GetNearestHumanoid(range, ignoreTeam)
+	local char = Entity.GetNearestCharacter(range, ignoreTeam)
+	return char and char:FindFirstChild("Humanoid") or nil
+end
+
+function Entity.GetNearestRootPart(range, ignoreTeam)
+	local char = Entity.GetNearestCharacter(range, ignoreTeam)
+	return char and char:FindFirstChild("HumanoidRootPart") or nil
+end
+
+function Entity.HasForceField()
+	return character and character:FindFirstChildOfClass("ForceField") ~= nil
+end
+
+function Entity.IsInvulnerable()
+	return Entity.HasForceField() or (humanoid and humanoid.Health <= 0)
+end
+
+function Entity.IsTargetable(plr)
+	if not plr or plr == player then return false end
+	local char = otherCharacters[plr] or (plr.Character and plr.Character.Parent and plr.Character)
+	if not char then return false end
+	local hum = char:FindFirstChild("Humanoid")
+	if not hum or hum.Health <= 0 then return false end
+	if char:FindFirstChildOfClass("ForceField") then return false end
+	return true
+end
+
+function Entity.CanBeHit(plr)
+	return Entity.IsTargetable(plr)
+end
+
+function Entity.WorldToViewport(point)
+	local cam = Workspace.CurrentCamera
+	return cam:WorldToViewportPoint(point)
+end
+
+function Entity.IsOnScreen()
+	if not head then return false end
+	local _, visible = Workspace.CurrentCamera:WorldToViewportPoint(head.Position)
+	return visible
+end
+
+function Entity.CreateConnectionManager()
+	local connections = {}
+	local manager = {}
+	function manager:Add(connection)
+		table.insert(connections, connection)
+	end
+	function manager:Clean()
+		for _, conn in ipairs(connections) do
+			conn:Disconnect()
+		end
+		table.clear(connections)
+	end
+	return manager
+end
+
+function Entity.GetOtherPlayers()
+	local list = {}
+	for other, _ in pairs(otherCharacters) do
+		table.insert(list, other)
+	end
+	return list
+end
+
+function Entity.GetOtherCharacters()
+	local list = {}
+	for _, char in pairs(otherCharacters) do
+		if char and char.Parent then
+			table.insert(list, char)
+		end
+	end
+	return list
+end
+
+return Entity
