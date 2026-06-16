@@ -1,0 +1,361 @@
+-- TimeUtils.lua
+-- Timing utilities for Roblox Luau
+
+local cloneref = cloneref or function(x) return x end
+local RunService = cloneref(game:GetService("RunService"))
+
+local TimeUtils = {}
+
+-- Token base constructors (no shared prototype to avoid name clashes)
+local function CreateDelayToken(thread)
+	return {
+		_cancelled = false,
+		_thread = thread,
+		Cancel = function(self)
+			if self._cancelled then return end
+			self._cancelled = true
+			if self._thread then
+				task.cancel(self._thread)
+			end
+		end
+	}
+end
+
+local function CreateIntervalToken(thread)
+	return {
+		_stopped = false,
+		_thread = thread,
+		Stop = function(self)
+			if self._stopped then return end
+			self._stopped = true
+			if self._thread then
+				task.cancel(self._thread)
+			end
+		end
+	}
+end
+
+-- Stopwatch class
+local Stopwatch = {}
+Stopwatch.__index = Stopwatch
+
+function Stopwatch.new()
+	return setmetatable({
+		_accumulated = 0,
+		_startTime = nil,
+		_running = false
+	}, Stopwatch)
+end
+
+function Stopwatch:Start()
+	if self._running then return end
+	self._startTime = os.clock()
+	self._running = true
+end
+
+function Stopwatch:Stop()
+	if not self._running then return end
+	self._accumulated = self._accumulated + (os.clock() - self._startTime)
+	self._running = false
+end
+
+function Stopwatch:Reset()
+	self._accumulated = 0
+	self._running = false
+end
+
+function Stopwatch:GetElapsed()
+	if self._running then
+		return self._accumulated + (os.clock() - self._startTime)
+	else
+		return self._accumulated
+	end
+end
+
+TimeUtils.Stopwatch = Stopwatch
+
+-- Core timing functions
+
+function TimeUtils.waitFor(condition, timeout)
+	assert(type(condition) == "function", "condition must be a function")
+	local start = os.clock()
+	while not condition() do
+		if timeout and (os.clock() - start) >= timeout then
+			return false
+		end
+		task.wait()
+	end
+	return true
+end
+
+function TimeUtils.sleep(seconds)
+	assert(type(seconds) == "number" and seconds >= 0, "seconds must be a non-negative number")
+	local elapsed = 0
+	while elapsed < seconds do
+		elapsed += task.wait()
+	end
+end
+
+function TimeUtils.frame()
+	task.wait()
+end
+
+function TimeUtils.delay(seconds, callback)
+	assert(type(seconds) == "number" and seconds >= 0, "seconds must be a non-negative number")
+	assert(type(callback) == "function", "callback must be a function")
+	local token = CreateDelayToken(nil)
+	local thread = task.delay(seconds, function()
+		if not token._cancelled then
+			callback()
+		end
+	end)
+	token._thread = thread
+	return token
+end
+
+function TimeUtils.interval(seconds, callback)
+	assert(type(seconds) == "number" and seconds > 0, "seconds must be a positive number")
+	assert(type(callback) == "function", "callback must be a function")
+	local token = CreateIntervalToken(nil)
+	local thread = task.spawn(function()
+		while not token._stopped do
+			task.wait(seconds)
+			if not token._stopped then
+				callback()
+			end
+		end
+	end)
+	token._thread = thread
+	return token
+end
+
+function TimeUtils.debounce(callback, delaySeconds)
+	assert(type(callback) == "function", "callback must be a function")
+	assert(type(delaySeconds) == "number" and delaySeconds >= 0, "delaySeconds must be non-negative")
+	local timerThread
+	local lastArgs
+	return function(...)
+		lastArgs = {...}
+		if timerThread then
+			task.cancel(timerThread)
+		end
+		timerThread = task.delay(delaySeconds, function()
+			callback(table.unpack(lastArgs))
+			timerThread = nil
+		end)
+	end
+end
+
+function TimeUtils.throttle(callback, intervalSeconds, options)
+	assert(type(callback) == "function", "callback must be a function")
+	assert(type(intervalSeconds) == "number" and intervalSeconds >= 0, "intervalSeconds must be non-negative")
+	local opts = options or {}
+	local leading = (opts.leading ~= false)
+	local trailing = (opts.trailing ~= false)
+	if not leading and not trailing then
+		leading = true -- at least one must execute
+	end
+
+	local lastExecution = -math.huge
+	local pendingArgs
+	local pendingTimer
+	return function(...)
+		local now = os.clock()
+		local elapsed = now - lastExecution
+
+		if elapsed >= intervalSeconds then
+			if leading then
+				lastExecution = now
+				callback(...)
+			else
+				-- skip leading, schedule trailing if enabled
+				if trailing then
+					pendingArgs = {...}
+					if not pendingTimer then
+						pendingTimer = task.delay(intervalSeconds, function()
+							lastExecution = os.clock()
+							callback(table.unpack(pendingArgs))
+							pendingTimer = nil
+							pendingArgs = nil
+						end)
+					else
+						pendingArgs = {...}
+					end
+				end
+			end
+		elseif trailing then
+			pendingArgs = {...}
+			local remaining = intervalSeconds - elapsed
+			if not pendingTimer then
+				pendingTimer = task.delay(remaining, function()
+					lastExecution = os.clock()
+					callback(table.unpack(pendingArgs))
+					pendingTimer = nil
+					pendingArgs = nil
+				end)
+			else
+				pendingArgs = {...}
+			end
+		end
+	end
+end
+
+-- Additional advanced utilities
+
+function TimeUtils.waitForSignal(signal, timeout)
+	assert(typeof(signal) == "RBXScriptSignal", "signal must be an RBXScriptSignal")
+	if timeout then
+		local fired = false
+		local connection
+		connection = signal:Connect(function()
+			fired = true
+		end)
+		local start = os.clock()
+		while not fired and (os.clock() - start) < timeout do
+			task.wait()
+		end
+		connection:Disconnect()
+		return fired
+	else
+		signal:Wait()
+		return true
+	end
+end
+
+function TimeUtils.everyFrame(callback)
+	assert(type(callback) == "function", "callback must be a function")
+	local connection = RunService.Heartbeat:Connect(callback)
+	return function()
+		connection:Disconnect()
+	end
+end
+
+function TimeUtils.scheduleAt(timestamp, callback)
+	assert(type(timestamp) == "number" and timestamp > 0, "timestamp must be a positive number")
+	assert(type(callback) == "function", "callback must be a function")
+	local now = os.time()
+	local delaySeconds = math.max(0, timestamp - now)
+	return TimeUtils.delay(delaySeconds, callback)
+end
+
+-- Retry token
+local RetryToken = {}
+RetryToken.__index = RetryToken
+
+function RetryToken.new(thread, cancelFn)
+	return setmetatable({
+		_thread = thread,
+		_cancel = cancelFn,
+		_resolved = false,
+		_rejected = false,
+		_onResolve = {},
+		_onReject = {},
+		_co = nil,
+		_result = nil,
+		_error = nil
+	}, RetryToken)
+end
+
+function RetryToken:Cancel()
+	if self._cancel then
+		self._cancel()
+	end
+	if not self._resolved and not self._rejected then
+		self._rejected = true
+		self._error = "Cancelled"
+		if self._co then
+			coroutine.resume(self._co, false, self._error)
+		end
+		for _, cb in ipairs(self._onReject) do
+			task.spawn(cb, self._error)
+		end
+	end
+end
+
+function RetryToken:Await()
+	if self._resolved then
+		return table.unpack(self._result)
+	elseif self._rejected then
+		error(self._error, 2)
+	end
+	self._co = coroutine.running()
+	local success, val = coroutine.yield()
+	if success then
+		return table.unpack(val)
+	else
+		error(val, 2)
+	end
+end
+
+function RetryToken:Then(onResolve)
+	if self._resolved then
+		task.spawn(onResolve, table.unpack(self._result))
+	elseif not self._rejected then
+		table.insert(self._onResolve, onResolve)
+	end
+	return self
+end
+
+function RetryToken:Catch(onReject)
+	if self._rejected then
+		task.spawn(onReject, self._error)
+	elseif not self._resolved then
+		table.insert(self._onReject, onReject)
+	end
+	return self
+end
+
+function TimeUtils.retry(fn, maxAttempts, baseDelay, backoff)
+	assert(type(fn) == "function", "fn must be a function")
+	assert(type(maxAttempts) == "number" and maxAttempts >= 1, "maxAttempts must be >= 1")
+	assert(type(baseDelay) == "number" and baseDelay >= 0, "baseDelay must be non-negative")
+	local backoffMultiplier = backoff or 2
+	local attempt = 0
+	local cancelled = false
+	local token
+
+	local function cancel()
+		cancelled = true
+	end
+
+	token = RetryToken.new(nil, cancel)
+	local thread = task.spawn(function()
+		local lastError
+		while attempt < maxAttempts and not cancelled do
+			attempt += 1
+			local success, result = pcall(fn)
+			if success then
+				token._resolved = true
+				token._result = {result}
+				if token._co then
+					coroutine.resume(token._co, true, result)
+				end
+				for _, cb in ipairs(token._onResolve) do
+					task.spawn(cb, result)
+				end
+				return
+			else
+				lastError = result
+				if attempt < maxAttempts then
+					local waitTime = baseDelay * (backoffMultiplier ^ (attempt - 1))
+					if cancelled then break end
+					task.wait(waitTime)
+				end
+			end
+		end
+		-- all attempts failed or cancelled
+		token._rejected = true
+		local finalError = cancelled and "Cancelled" or lastError
+		token._error = finalError
+		if token._co then
+			coroutine.resume(token._co, false, finalError)
+		end
+		for _, cb in ipairs(token._onReject) do
+			task.spawn(cb, finalError)
+		end
+	end)
+	token._thread = thread
+	return token
+end
+
+return TimeUtils
