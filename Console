@@ -10,7 +10,6 @@ local CoreGui = getService("CoreGui")
 local Players = getService("Players")
 local TweenService = getService("TweenService")
 local UserInputService = getService("UserInputService")
-local RunService = getService("RunService")
 
 local INSTANCE = nil
 local isVisible = false
@@ -66,7 +65,6 @@ local function buildUI()
     shadow.Size = 20
     shadow.Parent = main
 
-    -- Topbar
     local topbar = Instance.new("Frame")
     topbar.Name = "Topbar"
     topbar.Size = UDim2.new(1, 0, 0, 40)
@@ -79,7 +77,6 @@ local function buildUI()
     topCorner.CornerRadius = UDim.new(0, 10)
     topCorner.Parent = topbar
 
-    -- Título
     local title = Instance.new("TextLabel")
     title.Name = "TitleLabel"
     title.Size = UDim2.new(1, -80, 1, 0)
@@ -92,7 +89,6 @@ local function buildUI()
     title.TextSize = 18
     title.Parent = topbar
 
-    -- Descrição (subtítulo)
     local desc = Instance.new("TextLabel")
     desc.Name = "DescLabel"
     desc.Size = UDim2.new(1, -80, 0, 16)
@@ -106,7 +102,6 @@ local function buildUI()
     desc.Parent = topbar
     desc.Visible = (#descriptionText > 0)
 
-    -- Botão fechar
     local closeBtn = Instance.new("TextButton")
     closeBtn.Name = "CloseButton"
     closeBtn.Size = UDim2.new(0, 32, 1, -8)
@@ -129,7 +124,6 @@ local function buildUI()
         Console:Hide()
     end)
 
-    -- Área de conteúdo
     local content = Instance.new("Frame")
     content.Name = "Content"
     content.Size = UDim2.new(1, -20, 1, -56)
@@ -143,7 +137,6 @@ local function buildUI()
     contentCorner.CornerRadius = UDim.new(0, 6)
     contentCorner.Parent = content
 
-    -- ScrollingFrame
     local scroll = Instance.new("ScrollingFrame")
     scroll.Name = "Output"
     scroll.Size = UDim2.new(1, -8, 1, -8)
@@ -169,7 +162,6 @@ local function buildUI()
         end
     end)
 
-    -- Resize handle (canto inferior direito)
     local resize = Instance.new("Frame")
     resize.Name = "ResizeHandle"
     resize.Size = UDim2.new(0, 20, 0, 20)
@@ -183,7 +175,6 @@ local function buildUI()
     resizeCorner.CornerRadius = UDim.new(0, 4)
     resizeCorner.Parent = resize
 
-    -- Ícone de redimensionar (três tracinhos)
     for i = 1, 3 do
         local bar = Instance.new("Frame")
         bar.Size = UDim2.new(0, 10, 0, 1.5)
@@ -193,16 +184,16 @@ local function buildUI()
         bar.Parent = resize
     end
 
-    -- Arraste da topbar
+    -- Drag logic
     local dragging = false
-    local dragStartPos = nil
+    local dragStart = nil
     local dragOffset = nil
 
     topbar.InputBegan:Connect(function(input, gpe)
         if gpe then return end
         if input.UserInputType == Enum.UserInputType.MouseButton1 then
             dragging = true
-            dragStartPos = input.Position
+            dragStart = input.Position
             dragOffset = main.Position
         end
     end)
@@ -213,14 +204,7 @@ local function buildUI()
         end
     end)
 
-    UserInputService.InputChanged:Connect(function(input)
-        if not dragging then return end
-        if input.UserInputType ~= Enum.UserInputType.MouseMovement then return end
-        local delta = input.Position - dragStartPos
-        main.Position = UDim2.new(0, dragOffset.X.Offset + delta.X, 0, dragOffset.Y.Offset + delta.Y)
-    end)
-
-    -- Redimensionamento
+    -- Resize logic
     local resizing = false
     local resizeStart = nil
     local resizeOrigin = nil
@@ -240,22 +224,28 @@ local function buildUI()
         end
     end)
 
+    -- InputChanged global para movimento
     UserInputService.InputChanged:Connect(function(input)
-        if not resizing then return end
-        if input.UserInputType ~= Enum.UserInputType.MouseMovement then return end
-        local delta = input.Position - resizeStart
-        local newW = math.max(400, resizeOrigin[1] + delta.X)
-        local newH = math.max(300, resizeOrigin[2] + delta.Y)
-        main.Size = UDim2.new(0, newW, 0, newH)
+        if input.UserInputType == Enum.UserInputType.MouseMovement then
+            if dragging and dragOffset then
+                local delta = input.Position - dragStart
+                local x = math.floor(dragOffset.X.Offset + delta.X)
+                local y = math.floor(dragOffset.Y.Offset + delta.Y)
+                main.Position = UDim2.new(0, x, 0, y)
+            elseif resizing and resizeOrigin then
+                local delta = input.Position - resizeStart
+                local w = math.max(400, resizeOrigin[1] + delta.X)
+                local h = math.max(300, resizeOrigin[2] + delta.Y)
+                main.Size = UDim2.new(0, w, 0, h)
+            end
+        end
     end)
 
-    -- Evitar que o redimensionamento seja bloqueado por outros objetos
     resize.ZIndex = 10
     topbar.ZIndex = 5
 
     INSTANCE = gui
     isVisible = false
-
     return gui
 end
 
@@ -265,7 +255,6 @@ local function getMainFrame()
 end
 
 local function getOutput()
-    if not INSTANCE then return nil end
     local main = getMainFrame()
     if not main then return nil end
     local content = main:FindFirstChild("Content")
@@ -427,7 +416,7 @@ local function safeWrapper(func)
         local ok, err = pcall(func, ...)
         if not ok then
             warn("[Console] Erro interno:", err, debug.traceback())
-            if type(err) == "string" and (string.find(err, "UI") or string.find(err, "Parent") or string.find(err, "Visible")) then
+            if type(err) == "string" and (string.find(err, "UI") or string.find(err, "Parent") or string.find(err, "Visible") or string.find(err, "UDim2")) then
                 INSTANCE = nil
                 isVisible = false
                 buildUI()
