@@ -11,7 +11,11 @@ end
 local CoreGui = getService("CoreGui")
 local Players = getService("Players")
 local TweenService = getService("TweenService")
-local RunService = getService("RunService")
+
+local ui = nil
+local outputLayout = nil
+local scrollFrame = nil
+local isVisible = false
 
 local function getUIParent()
     if CoreGui and CoreGui.Parent then
@@ -23,11 +27,6 @@ local function getUIParent()
     end
     return nil
 end
-
-local ui = nil
-local outputLayout = nil
-local scrollFrame = nil
-local isVisible = false
 
 local function buildUI()
     if ui then return ui end
@@ -148,6 +147,11 @@ local function addMessage(text, color)
         if not ui then return end
     end
 
+    if not scrollFrame or not outputLayout then
+        warn("[Console] UI não completamente inicializada.")
+        return
+    end
+
     local label = Instance.new("TextLabel")
     label.Name = "Message"
     label.Size = UDim2.new(1, -10, 0, 20)
@@ -176,33 +180,40 @@ function Console:Show()
     end
 
     local mainFrame = ui:FindFirstChild("MainFrame")
-    if mainFrame then
-        mainFrame.Visible = true
-        isVisible = true
-        mainFrame.BackgroundTransparency = 1
-        local tween = TweenService:Create(mainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-            BackgroundTransparency = 0
-        })
-        tween:Play()
+    if not mainFrame then
+        warn("[Console] MainFrame não encontrado.")
+        return
     end
+
+    mainFrame.Visible = true
+    isVisible = true
+    mainFrame.BackgroundTransparency = 1
+    local tween = TweenService:Create(mainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+        BackgroundTransparency = 0
+    })
+    tween:Play()
 end
 
 function Console:Hide()
-    if not ui then return end
+    if not ui then
+        isVisible = false
+        return
+    end
 
     local mainFrame = ui:FindFirstChild("MainFrame")
-    if mainFrame then
-        local tween = TweenService:Create(mainFrame, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
-            BackgroundTransparency = 1
-        })
-        tween:Play()
-        tween.Completed:Connect(function()
-            mainFrame.Visible = false
-            isVisible = false
-        end)
-    else
+    if not mainFrame then
         isVisible = false
+        return
     end
+
+    local tween = TweenService:Create(mainFrame, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+        BackgroundTransparency = 1
+    })
+    tween:Play()
+    tween.Completed:Connect(function()
+        mainFrame.Visible = false
+        isVisible = false
+    end)
 end
 
 function Console:Toggle()
@@ -218,9 +229,9 @@ function Console:Toggle()
     end
 
     if isVisible then
-        self:Hide()
+        Console:Hide()
     else
-        self:Show()
+        Console:Show()
     end
 end
 
@@ -235,8 +246,8 @@ local function safeWrapper(func)
     return function(...)
         local success, err = pcall(func, ...)
         if not success then
-            warn("[Console] Erro interno:", err)
-            if string.find(err, "UI") or string.find(err, "Parent") then
+            warn("[Console] Erro interno:", err, debug.traceback())
+            if type(err) == "string" and (string.find(err, "UI") or string.find(err, "Parent") or string.find(err, "Visible")) then
                 ui = nil
                 isVisible = false
                 buildUI()
@@ -254,7 +265,7 @@ local initSuccess, initErr = pcall(function()
     buildUI()
 end)
 if not initSuccess then
-    warn("[Console] Falha na inicialização:", initErr)
+    warn("[Console] Falha na inicialização:", initErr, debug.traceback())
 end
 
 return Console
