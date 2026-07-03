@@ -55,11 +55,11 @@ local function buildUI()
     })
     if not gui then return nil end
 
-    -- Sem AnchorPoint para facilitar o arrasto
     local main = safeCreate("Frame", gui, {
         Name = "MainFrame",
         Size = UDim2.new(0, 700, 0, 500),
         Position = UDim2.new(0.5, -350, 0.5, -250),
+        AnchorPoint = Vector2.new(0.5, 0.5),
         BackgroundColor3 = Color3.fromRGB(22, 22, 28),
         BackgroundTransparency = 0,
         BorderSizePixel = 0,
@@ -71,13 +71,6 @@ local function buildUI()
     local stroke = safeCreate("UIStroke", main, {
         Color = Color3.fromRGB(70, 70, 90),
         Thickness = 1.5
-    })
-
-    -- UIShadow: Offset é UDim2, sem Size
-    local shadow = safeCreate("UIShadow", main, {
-        Color = Color3.fromRGB(0, 0, 0),
-        Transparency = 0.6,
-        Offset = UDim2.new(0, 0, 0, 6)
     })
 
     local topbar = safeCreate("Frame", main, {
@@ -196,7 +189,6 @@ local function buildUI()
         end
     end
 
-    -- Drag logic (corrigido)
     local dragging = false
     local dragStart = nil
     local dragOffset = nil
@@ -216,7 +208,6 @@ local function buildUI()
         end
     end)
 
-    -- Resize logic
     local resizing = false
     local resizeStart = nil
     local resizeOrigin = nil
@@ -255,9 +246,6 @@ local function buildUI()
     end)
 
     topbar.ZIndex = 5
-
-    -- Centraliza após criação (caso a posição inicial seja alterada)
-    main.Position = UDim2.new(0.5, -main.Size.X.Offset/2, 0.5, -main.Size.Y.Offset/2)
 
     INSTANCE = gui
     isVisible = false
