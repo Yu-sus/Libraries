@@ -1,254 +1,434 @@
 local Console = {}
 
-local function getService(serviceName)
-    local service = game:GetService(serviceName)
-    if cloneref then
-        return cloneref(service)
-    end
-    return service
+local function getService(name)
+    local svc = game:GetService(name)
+    if cloneref then return cloneref(svc) end
+    return svc
 end
 
 local CoreGui = getService("CoreGui")
 local Players = getService("Players")
 local TweenService = getService("TweenService")
+local UserInputService = getService("UserInputService")
+local RunService = getService("RunService")
 
-local ui = nil
-local outputLayout = nil
-local scrollFrame = nil
+local INSTANCE = nil
 local isVisible = false
+local titleText = "Secure Console"
+local descriptionText = ""
 
 local function getUIParent()
-    if CoreGui and CoreGui.Parent then
-        return CoreGui
-    end
-    local player = Players.LocalPlayer
-    if player and player:FindFirstChild("PlayerGui") then
-        return player.PlayerGui
-    end
+    if CoreGui and CoreGui.Parent then return CoreGui end
+    local plr = Players.LocalPlayer
+    if plr and plr:FindFirstChild("PlayerGui") then return plr.PlayerGui end
     return nil
 end
 
 local function buildUI()
-    if ui then return ui end
+    if INSTANCE then return INSTANCE end
 
     local parent = getUIParent()
     if not parent then
-        warn("[Console] Nenhum parente disponível para criar a UI.")
+        warn("[Console] Nenhum parente disponível.")
         return nil
     end
 
-    local screenGui = Instance.new("ScreenGui")
-    screenGui.Name = "SecureConsoleUI"
-    screenGui.ResetOnSpawn = false
-    screenGui.IgnoreGuiInset = true
-    screenGui.Parent = parent
+    local gui = Instance.new("ScreenGui")
+    gui.Name = "SecureConsoleUI"
+    gui.ResetOnSpawn = false
+    gui.IgnoreGuiInset = true
+    gui.Parent = parent
 
-    local mainFrame = Instance.new("Frame")
-    mainFrame.Name = "MainFrame"
-    mainFrame.Size = UDim2.new(0, 600, 0, 400)
-    mainFrame.Position = UDim2.new(0.5, -300, 0.5, -200)
-    mainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
-    mainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-    mainFrame.BackgroundTransparency = 0
-    mainFrame.Visible = false
-    mainFrame.Parent = screenGui
+    local main = Instance.new("Frame")
+    main.Name = "MainFrame"
+    main.Size = UDim2.new(0, 700, 0, 500)
+    main.Position = UDim2.new(0.5, -350, 0.5, -250)
+    main.AnchorPoint = Vector2.new(0.5, 0.5)
+    main.BackgroundColor3 = Color3.fromRGB(22, 22, 28)
+    main.BackgroundTransparency = 0
+    main.BorderSizePixel = 0
+    main.Visible = false
+    main.Parent = gui
 
     local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 8)
-    corner.Parent = mainFrame
+    corner.CornerRadius = UDim.new(0, 10)
+    corner.Parent = main
 
     local stroke = Instance.new("UIStroke")
-    stroke.Color = Color3.fromRGB(60, 60, 60)
-    stroke.Thickness = 1
-    stroke.Parent = mainFrame
+    stroke.Color = Color3.fromRGB(70, 70, 90)
+    stroke.Thickness = 1.5
+    stroke.Parent = main
 
+    local shadow = Instance.new("UIShadow")
+    shadow.Color = Color3.fromRGB(0, 0, 0)
+    shadow.Transparency = 0.6
+    shadow.Offset = Vector2.new(0, 6)
+    shadow.Size = 20
+    shadow.Parent = main
+
+    -- Topbar
     local topbar = Instance.new("Frame")
     topbar.Name = "Topbar"
-    topbar.Size = UDim2.new(1, 0, 0, 30)
-    topbar.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    topbar.Size = UDim2.new(1, 0, 0, 40)
+    topbar.BackgroundColor3 = Color3.fromRGB(30, 30, 38)
     topbar.BackgroundTransparency = 0
-    topbar.Parent = mainFrame
+    topbar.BorderSizePixel = 0
+    topbar.Parent = main
 
     local topCorner = Instance.new("UICorner")
-    topCorner.CornerRadius = UDim.new(0, 8)
+    topCorner.CornerRadius = UDim.new(0, 10)
     topCorner.Parent = topbar
 
+    -- Título
     local title = Instance.new("TextLabel")
-    title.Name = "Title"
-    title.Size = UDim2.new(1, -40, 1, 0)
-    title.Position = UDim2.new(0, 10, 0, 0)
+    title.Name = "TitleLabel"
+    title.Size = UDim2.new(1, -80, 1, 0)
+    title.Position = UDim2.new(0, 12, 0, 0)
     title.BackgroundTransparency = 1
-    title.Text = "Secure Console"
+    title.Text = titleText
     title.TextColor3 = Color3.fromRGB(255, 255, 255)
     title.TextXAlignment = Enum.TextXAlignment.Left
     title.Font = Enum.Font.GothamBold
-    title.TextSize = 16
+    title.TextSize = 18
     title.Parent = topbar
 
+    -- Descrição (subtítulo)
+    local desc = Instance.new("TextLabel")
+    desc.Name = "DescLabel"
+    desc.Size = UDim2.new(1, -80, 0, 16)
+    desc.Position = UDim2.new(0, 12, 0, 24)
+    desc.BackgroundTransparency = 1
+    desc.Text = descriptionText
+    desc.TextColor3 = Color3.fromRGB(160, 160, 180)
+    desc.TextXAlignment = Enum.TextXAlignment.Left
+    desc.Font = Enum.Font.Gotham
+    desc.TextSize = 12
+    desc.Parent = topbar
+    desc.Visible = (#descriptionText > 0)
+
+    -- Botão fechar
     local closeBtn = Instance.new("TextButton")
     closeBtn.Name = "CloseButton"
-    closeBtn.Size = UDim2.new(0, 30, 1, 0)
-    closeBtn.Position = UDim2.new(1, -30, 0, 0)
-    closeBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+    closeBtn.Size = UDim2.new(0, 32, 1, -8)
+    closeBtn.Position = UDim2.new(1, -38, 0, 4)
+    closeBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 60)
     closeBtn.BackgroundTransparency = 0
     closeBtn.Text = "✕"
-    closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    closeBtn.TextColor3 = Color3.fromRGB(220, 220, 230)
     closeBtn.Font = Enum.Font.Gotham
-    closeBtn.TextSize = 14
+    closeBtn.TextSize = 16
     closeBtn.AutoButtonColor = false
+    closeBtn.BorderSizePixel = 0
     closeBtn.Parent = topbar
 
     local closeCorner = Instance.new("UICorner")
-    closeCorner.CornerRadius = UDim.new(0, 8)
+    closeCorner.CornerRadius = UDim.new(0, 6)
     closeCorner.Parent = closeBtn
 
     closeBtn.MouseButton1Click:Connect(function()
         Console:Hide()
     end)
 
-    scrollFrame = Instance.new("ScrollingFrame")
-    scrollFrame.Name = "Output"
-    scrollFrame.Size = UDim2.new(1, -20, 1, -50)
-    scrollFrame.Position = UDim2.new(0, 10, 0, 40)
-    scrollFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
-    scrollFrame.BackgroundTransparency = 0
-    scrollFrame.BorderSizePixel = 0
-    scrollFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
-    scrollFrame.ScrollBarThickness = 6
-    scrollFrame.ScrollBarImageColor3 = Color3.fromRGB(80, 80, 80)
-    scrollFrame.Parent = mainFrame
+    -- Área de conteúdo
+    local content = Instance.new("Frame")
+    content.Name = "Content"
+    content.Size = UDim2.new(1, -20, 1, -56)
+    content.Position = UDim2.new(0, 10, 0, 46)
+    content.BackgroundColor3 = Color3.fromRGB(16, 16, 20)
+    content.BackgroundTransparency = 0
+    content.BorderSizePixel = 0
+    content.Parent = main
 
-    local scrollCorner = Instance.new("UICorner")
-    scrollCorner.CornerRadius = UDim.new(0, 4)
-    scrollCorner.Parent = scrollFrame
+    local contentCorner = Instance.new("UICorner")
+    contentCorner.CornerRadius = UDim.new(0, 6)
+    contentCorner.Parent = content
 
-    outputLayout = Instance.new("UIListLayout")
-    outputLayout.Name = "MessageLayout"
-    outputLayout.SortOrder = Enum.SortOrder.LayoutOrder
-    outputLayout.Padding = UDim.new(0, 2)
-    outputLayout.Parent = scrollFrame
+    -- ScrollingFrame
+    local scroll = Instance.new("ScrollingFrame")
+    scroll.Name = "Output"
+    scroll.Size = UDim2.new(1, -8, 1, -8)
+    scroll.Position = UDim2.new(0, 4, 0, 4)
+    scroll.BackgroundTransparency = 1
+    scroll.BorderSizePixel = 0
+    scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+    scroll.ScrollBarThickness = 6
+    scroll.ScrollBarImageColor3 = Color3.fromRGB(70, 70, 90)
+    scroll.Parent = content
 
-    outputLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-        local canvasSize = outputLayout.AbsoluteContentSize
-        if canvasSize.Y > 0 then
-            scrollFrame.CanvasSize = UDim2.new(0, 0, 0, canvasSize.Y + 10)
-            scrollFrame.CanvasPosition = Vector2.new(0, canvasSize.Y)
+    local layout = Instance.new("UIListLayout")
+    layout.Name = "MessageLayout"
+    layout.SortOrder = Enum.SortOrder.LayoutOrder
+    layout.Padding = UDim.new(0, 2)
+    layout.Parent = scroll
+
+    layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+        local h = layout.AbsoluteContentSize.Y
+        if h > 0 then
+            scroll.CanvasSize = UDim2.new(0, 0, 0, h + 8)
+            scroll.CanvasPosition = Vector2.new(0, h)
         end
     end)
 
-    ui = screenGui
-    isVisible = false
-    return ui
-end
+    -- Resize handle (canto inferior direito)
+    local resize = Instance.new("Frame")
+    resize.Name = "ResizeHandle"
+    resize.Size = UDim2.new(0, 20, 0, 20)
+    resize.Position = UDim2.new(1, -24, 1, -24)
+    resize.BackgroundColor3 = Color3.fromRGB(60, 60, 80)
+    resize.BackgroundTransparency = 0.5
+    resize.BorderSizePixel = 0
+    resize.Parent = main
 
-local function addMessage(text, color)
-    if not ui then
-        buildUI()
-        if not ui then return end
+    local resizeCorner = Instance.new("UICorner")
+    resizeCorner.CornerRadius = UDim.new(0, 4)
+    resizeCorner.Parent = resize
+
+    -- Ícone de redimensionar (três tracinhos)
+    for i = 1, 3 do
+        local bar = Instance.new("Frame")
+        bar.Size = UDim2.new(0, 10, 0, 1.5)
+        bar.Position = UDim2.new(0.5, -5, 0, 2 + (i-1)*5)
+        bar.BackgroundColor3 = Color3.fromRGB(200, 200, 220)
+        bar.BorderSizePixel = 0
+        bar.Parent = resize
     end
 
-    if not scrollFrame or not outputLayout then
+    -- Arraste da topbar
+    local dragging = false
+    local dragStartPos = nil
+    local dragOffset = nil
+
+    topbar.InputBegan:Connect(function(input, gpe)
+        if gpe then return end
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = true
+            dragStartPos = input.Position
+            dragOffset = main.Position
+        end
+    end)
+
+    topbar.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = false
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if not dragging then return end
+        if input.UserInputType ~= Enum.UserInputType.MouseMovement then return end
+        local delta = input.Position - dragStartPos
+        main.Position = UDim2.new(0, dragOffset.X.Offset + delta.X, 0, dragOffset.Y.Offset + delta.Y)
+    end)
+
+    -- Redimensionamento
+    local resizing = false
+    local resizeStart = nil
+    local resizeOrigin = nil
+
+    resize.InputBegan:Connect(function(input, gpe)
+        if gpe then return end
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            resizing = true
+            resizeStart = input.Position
+            resizeOrigin = {main.Size.X.Offset, main.Size.Y.Offset}
+        end
+    end)
+
+    resize.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            resizing = false
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if not resizing then return end
+        if input.UserInputType ~= Enum.UserInputType.MouseMovement then return end
+        local delta = input.Position - resizeStart
+        local newW = math.max(400, resizeOrigin[1] + delta.X)
+        local newH = math.max(300, resizeOrigin[2] + delta.Y)
+        main.Size = UDim2.new(0, newW, 0, newH)
+    end)
+
+    -- Evitar que o redimensionamento seja bloqueado por outros objetos
+    resize.ZIndex = 10
+    topbar.ZIndex = 5
+
+    INSTANCE = gui
+    isVisible = false
+
+    return gui
+end
+
+local function getMainFrame()
+    if not INSTANCE then return nil end
+    return INSTANCE:FindFirstChild("MainFrame")
+end
+
+local function getOutput()
+    if not INSTANCE then return nil end
+    local main = getMainFrame()
+    if not main then return nil end
+    local content = main:FindFirstChild("Content")
+    if not content then return nil end
+    return content:FindFirstChild("Output")
+end
+
+local function getLayout()
+    local output = getOutput()
+    if not output then return nil end
+    return output:FindFirstChild("MessageLayout")
+end
+
+local function addMessage(text, color, withTimestamp)
+    if not INSTANCE then
+        buildUI()
+        if not INSTANCE then return end
+    end
+
+    local output = getOutput()
+    local layout = getLayout()
+    if not output or not layout then
         warn("[Console] UI não completamente inicializada.")
         return
     end
 
+    local timestamp = ""
+    if withTimestamp ~= false then
+        timestamp = os.date("[%H:%M:%S] ")
+    end
+
     local label = Instance.new("TextLabel")
     label.Name = "Message"
-    label.Size = UDim2.new(1, -10, 0, 20)
+    label.Size = UDim2.new(1, -6, 0, 20)
     label.BackgroundTransparency = 1
-    label.Text = text
-    label.TextColor3 = color or Color3.fromRGB(200, 200, 200)
+    label.Text = timestamp .. text
+    label.TextColor3 = color or Color3.fromRGB(200, 200, 210)
     label.TextXAlignment = Enum.TextXAlignment.Left
     label.Font = Enum.Font.Gotham
     label.TextSize = 14
     label.TextWrapped = true
     label.TextTruncate = Enum.TextTruncate.None
-    label.Parent = scrollFrame
+    label.Parent = output
 
     task.wait()
-    local canvasSize = outputLayout.AbsoluteContentSize
-    if canvasSize.Y > 0 then
-        scrollFrame.CanvasSize = UDim2.new(0, 0, 0, canvasSize.Y + 10)
-        scrollFrame.CanvasPosition = Vector2.new(0, canvasSize.Y)
+    local h = layout.AbsoluteContentSize.Y
+    if h > 0 then
+        output.CanvasSize = UDim2.new(0, 0, 0, h + 8)
+        output.CanvasPosition = Vector2.new(0, h)
     end
 end
 
 function Console:Show()
-    if not ui then
+    if not INSTANCE then
         buildUI()
-        if not ui then return end
+        if not INSTANCE then return end
     end
 
-    local mainFrame = ui:FindFirstChild("MainFrame")
-    if not mainFrame then
-        warn("[Console] MainFrame não encontrado.")
-        return
-    end
-
-    mainFrame.Visible = true
+    local main = getMainFrame()
+    if not main then return end
+    main.Visible = true
     isVisible = true
-    mainFrame.BackgroundTransparency = 1
-    local tween = TweenService:Create(mainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+    main.BackgroundTransparency = 1
+    local tween = TweenService:Create(main, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
         BackgroundTransparency = 0
     })
     tween:Play()
 end
 
 function Console:Hide()
-    if not ui then
+    if not INSTANCE then
         isVisible = false
         return
     end
-
-    local mainFrame = ui:FindFirstChild("MainFrame")
-    if not mainFrame then
+    local main = getMainFrame()
+    if not main then
         isVisible = false
         return
     end
-
-    local tween = TweenService:Create(mainFrame, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+    local tween = TweenService:Create(main, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
         BackgroundTransparency = 1
     })
     tween:Play()
     tween.Completed:Connect(function()
-        mainFrame.Visible = false
+        main.Visible = false
         isVisible = false
     end)
 end
 
 function Console:Toggle()
-    if not ui then
+    if not INSTANCE then
         buildUI()
-        if not ui then return end
+        if not INSTANCE then return end
     end
-
-    local mainFrame = ui:FindFirstChild("MainFrame")
-    if not mainFrame then
-        isVisible = false
-        return
-    end
-
     if isVisible then
-        Console:Hide()
+        self:Hide()
     else
-        Console:Show()
+        self:Show()
     end
 end
 
-function Console:Print(message, color)
+function Console:Print(message, color, withTimestamp)
     if type(message) ~= "string" then
         message = tostring(message)
     end
-    addMessage(message, color)
+    addMessage(message, color, withTimestamp)
+end
+
+function Console:SetTitle(newTitle)
+    if type(newTitle) ~= "string" then return end
+    titleText = newTitle
+    if INSTANCE then
+        local main = getMainFrame()
+        if main then
+            local topbar = main:FindFirstChild("Topbar")
+            if topbar then
+                local lbl = topbar:FindFirstChild("TitleLabel")
+                if lbl then lbl.Text = newTitle end
+            end
+        end
+    end
+end
+
+function Console:SetDescription(newDesc)
+    if type(newDesc) ~= "string" then return end
+    descriptionText = newDesc
+    if INSTANCE then
+        local main = getMainFrame()
+        if main then
+            local topbar = main:FindFirstChild("Topbar")
+            if topbar then
+                local lbl = topbar:FindFirstChild("DescLabel")
+                if lbl then
+                    lbl.Text = newDesc
+                    lbl.Visible = (#newDesc > 0)
+                end
+            end
+        end
+    end
+end
+
+function Console:GetVisible()
+    return isVisible
+end
+
+function Console:Clear()
+    local output = getOutput()
+    if not output then return end
+    for _, child in ipairs(output:GetChildren()) do
+        if child:IsA("TextLabel") then
+            child:Destroy()
+        end
+    end
+    output.CanvasSize = UDim2.new(0, 0, 0, 0)
 end
 
 local function safeWrapper(func)
     return function(...)
-        local success, err = pcall(func, ...)
-        if not success then
+        local ok, err = pcall(func, ...)
+        if not ok then
             warn("[Console] Erro interno:", err, debug.traceback())
             if type(err) == "string" and (string.find(err, "UI") or string.find(err, "Parent") or string.find(err, "Visible")) then
-                ui = nil
+                INSTANCE = nil
                 isVisible = false
                 buildUI()
             end
@@ -260,11 +440,15 @@ Console.Show = safeWrapper(Console.Show)
 Console.Hide = safeWrapper(Console.Hide)
 Console.Toggle = safeWrapper(Console.Toggle)
 Console.Print = safeWrapper(Console.Print)
+Console.SetTitle = safeWrapper(Console.SetTitle)
+Console.SetDescription = safeWrapper(Console.SetDescription)
+Console.Clear = safeWrapper(Console.Clear)
+Console.GetVisible = safeWrapper(Console.GetVisible)
 
-local initSuccess, initErr = pcall(function()
+local initOk, initErr = pcall(function()
     buildUI()
 end)
-if not initSuccess then
+if not initOk then
     warn("[Console] Falha na inicialização:", initErr, debug.traceback())
 end
 
