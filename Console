@@ -1,0 +1,240 @@
+local Console = {}
+
+local function getService(serviceName)
+    local service = game:GetService(serviceName)
+    if cloneref then
+        return cloneref(service)
+    end
+    return service
+end
+
+local CoreGui = getService("CoreGui")
+local Players = getService("Players")
+local TweenService = getService("TweenService")
+local RunService = getService("RunService")
+
+local function getUIParent()
+    if CoreGui and CoreGui.Parent then
+        return CoreGui
+    end
+    local player = Players.LocalPlayer
+    if player and player:FindFirstChild("PlayerGui") then
+        return player.PlayerGui
+    end
+    return nil
+end
+
+local ui = nil
+local outputLayout = nil
+local scrollFrame = nil
+local isVisible = false
+
+local function buildUI()
+    if ui then return ui end
+
+    local parent = getUIParent()
+    if not parent then
+        warn("[Console] Nenhum parente disponível para criar a UI.")
+        return nil
+    end
+
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "SecureConsoleUI"
+    screenGui.ResetOnSpawn = false
+    screenGui.IgnoreGuiInset = true
+    screenGui.Parent = parent
+
+    local mainFrame = Instance.new("Frame")
+    mainFrame.Name = "MainFrame"
+    mainFrame.Size = UDim2.new(0, 600, 0, 400)
+    mainFrame.Position = UDim2.new(0.5, -300, 0.5, -200)
+    mainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+    mainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+    mainFrame.BackgroundTransparency = 0
+    mainFrame.Visible = false
+    mainFrame.Parent = screenGui
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 8)
+    corner.Parent = mainFrame
+
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = Color3.fromRGB(60, 60, 60)
+    stroke.Thickness = 1
+    stroke.Parent = mainFrame
+
+    local topbar = Instance.new("Frame")
+    topbar.Name = "Topbar"
+    topbar.Size = UDim2.new(1, 0, 0, 30)
+    topbar.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    topbar.BackgroundTransparency = 0
+    topbar.Parent = mainFrame
+
+    local topCorner = Instance.new("UICorner")
+    topCorner.CornerRadius = UDim.new(0, 8)
+    topCorner.Parent = topbar
+
+    local title = Instance.new("TextLabel")
+    title.Name = "Title"
+    title.Size = UDim2.new(1, -40, 1, 0)
+    title.Position = UDim2.new(0, 10, 0, 0)
+    title.BackgroundTransparency = 1
+    title.Text = "Secure Console"
+    title.TextColor3 = Color3.fromRGB(255, 255, 255)
+    title.TextXAlignment = Enum.TextXAlignment.Left
+    title.Font = Enum.Font.GothamBold
+    title.TextSize = 16
+    title.Parent = topbar
+
+    local closeBtn = Instance.new("TextButton")
+    closeBtn.Name = "CloseButton"
+    closeBtn.Size = UDim2.new(0, 30, 1, 0)
+    closeBtn.Position = UDim2.new(1, -30, 0, 0)
+    closeBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+    closeBtn.BackgroundTransparency = 0
+    closeBtn.Text = "✕"
+    closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    closeBtn.Font = Enum.Font.Gotham
+    closeBtn.TextSize = 14
+    closeBtn.AutoButtonColor = false
+    closeBtn.Parent = topbar
+
+    local closeCorner = Instance.new("UICorner")
+    closeCorner.CornerRadius = UDim.new(0, 8)
+    closeCorner.Parent = closeBtn
+
+    closeBtn.MouseButton1Click:Connect(function()
+        Console:Hide()
+    end)
+
+    scrollFrame = Instance.new("ScrollingFrame")
+    scrollFrame.Name = "Output"
+    scrollFrame.Size = UDim2.new(1, -20, 1, -50)
+    scrollFrame.Position = UDim2.new(0, 10, 0, 40)
+    scrollFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+    scrollFrame.BackgroundTransparency = 0
+    scrollFrame.BorderSizePixel = 0
+    scrollFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
+    scrollFrame.ScrollBarThickness = 6
+    scrollFrame.ScrollBarImageColor3 = Color3.fromRGB(80, 80, 80)
+    scrollFrame.Parent = mainFrame
+
+    local scrollCorner = Instance.new("UICorner")
+    scrollCorner.CornerRadius = UDim.new(0, 4)
+    scrollCorner.Parent = scrollFrame
+
+    outputLayout = Instance.new("UIListLayout")
+    outputLayout.Name = "MessageLayout"
+    outputLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    outputLayout.Padding = UDim.new(0, 2)
+    outputLayout.Parent = scrollFrame
+
+    outputLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+        local canvasSize = outputLayout.AbsoluteContentSize
+        if canvasSize.Y > 0 then
+            scrollFrame.CanvasSize = UDim2.new(0, 0, 0, canvasSize.Y + 10)
+            scrollFrame.CanvasPosition = Vector2.new(0, canvasSize.Y)
+        end
+    end)
+
+    ui = screenGui
+    return ui
+end
+
+local function addMessage(text, color)
+    if not ui then
+        buildUI()
+        if not ui then return end
+    end
+
+    local label = Instance.new("TextLabel")
+    label.Name = "Message"
+    label.Size = UDim2.new(1, -10, 0, 20)
+    label.BackgroundTransparency = 1
+    label.Text = text
+    label.TextColor3 = color or Color3.fromRGB(200, 200, 200)
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Font = Enum.Font.Gotham
+    label.TextSize = 14
+    label.TextWrapped = true
+    label.TextTruncate = Enum.TextTruncate.None
+    label.Parent = scrollFrame
+
+    task.wait()
+    local canvasSize = outputLayout.AbsoluteContentSize
+    if canvasSize.Y > 0 then
+        scrollFrame.CanvasSize = UDim2.new(0, 0, 0, canvasSize.Y + 10)
+        scrollFrame.CanvasPosition = Vector2.new(0, canvasSize.Y)
+    end
+end
+
+function Console:Show()
+    if not ui then
+        buildUI()
+        if not ui then return end
+    end
+
+    local mainFrame = ui:FindFirstChild("MainFrame")
+    if mainFrame then
+        mainFrame.Visible = true
+        isVisible = true
+        mainFrame.BackgroundTransparency = 1
+        local tween = TweenService:Create(mainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+            BackgroundTransparency = 0
+        })
+        tween:Play()
+    end
+end
+
+function Console:Hide()
+    if not ui then return end
+
+    local mainFrame = ui:FindFirstChild("MainFrame")
+    if mainFrame then
+        local tween = TweenService:Create(mainFrame, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+            BackgroundTransparency = 1
+        })
+        tween:Play()
+        tween.Completed:Connect(function()
+            mainFrame.Visible = false
+            isVisible = false
+        end)
+    else
+        isVisible = false
+    end
+end
+
+function Console:Toggle()
+    if isVisible then
+        self:Hide()
+    else
+        self:Show()
+    end
+end
+
+function Console:Print(message, color)
+    if type(message) ~= "string" then
+        message = tostring(message)
+    end
+    addMessage(message, color)
+end
+
+local function safeWrapper(func)
+    return function(...)
+        local success, err = pcall(func, ...)
+        if not success then
+            warn("[Console] Erro interno:", err)
+            if string.find(err, "UI") or string.find(err, "Parent") then
+                ui = nil
+                buildUI()
+            end
+        end
+    end
+end
+
+Console.Show = safeWrapper(Console.Show)
+Console.Hide = safeWrapper(Console.Hide)
+Console.Toggle = safeWrapper(Console.Toggle)
+Console.Print = safeWrapper(Console.Print)
+
+return Console
