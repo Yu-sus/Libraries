@@ -138,6 +138,7 @@ local function buildUI()
     end)
 
     ui = screenGui
+    isVisible = false
     return ui
 end
 
@@ -205,6 +206,17 @@ function Console:Hide()
 end
 
 function Console:Toggle()
+    if not ui then
+        buildUI()
+        if not ui then return end
+    end
+
+    local mainFrame = ui:FindFirstChild("MainFrame")
+    if not mainFrame then
+        isVisible = false
+        return
+    end
+
     if isVisible then
         self:Hide()
     else
@@ -226,6 +238,7 @@ local function safeWrapper(func)
             warn("[Console] Erro interno:", err)
             if string.find(err, "UI") or string.find(err, "Parent") then
                 ui = nil
+                isVisible = false
                 buildUI()
             end
         end
@@ -236,5 +249,12 @@ Console.Show = safeWrapper(Console.Show)
 Console.Hide = safeWrapper(Console.Hide)
 Console.Toggle = safeWrapper(Console.Toggle)
 Console.Print = safeWrapper(Console.Print)
+
+local initSuccess, initErr = pcall(function()
+    buildUI()
+end)
+if not initSuccess then
+    warn("[Console] Falha na inicialização:", initErr)
+end
 
 return Console
