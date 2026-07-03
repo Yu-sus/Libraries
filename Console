@@ -58,7 +58,7 @@ local function buildUI()
     local main = safeCreate("Frame", gui, {
         Name = "MainFrame",
         Size = UDim2.new(0, 700, 0, 500),
-        Position = UDim2.new(0.5, -350, 0.5, -250),
+        Position = UDim2.fromScale(0.5, 0.5),
         AnchorPoint = Vector2.new(0.5, 0.5),
         BackgroundColor3 = Color3.fromRGB(22, 22, 28),
         BackgroundTransparency = 0,
