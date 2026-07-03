@@ -1,6 +1,5 @@
 local Console = {}
 
--- Serviço seguro com suporte a cloneref
 local function getService(name)
     local svc = game:GetService(name)
     if cloneref then return cloneref(svc) end
@@ -13,17 +12,14 @@ local TweenService = getService("TweenService")
 local UserInputService = getService("UserInputService")
 local Workspace = getService("Workspace")
 
--- Variáveis internas
 local INSTANCE = nil
 local isVisible = false
 local titleText = "Secure Console"
 local descriptionText = ""
 
--- Controle de listeners
 local inputConnection = nil
 local lastRebuildTime = 0
 
--- Helper para obter parent adequado
 local function getUIParent()
     if CoreGui and CoreGui.Parent then return CoreGui end
     local plr = Players.LocalPlayer
@@ -31,7 +27,6 @@ local function getUIParent()
     return nil
 end
 
--- Criação segura de instâncias
 local function safeCreate(className, parent, props)
     local ok, obj = pcall(function()
         local inst = Instance.new(className)
@@ -48,7 +43,6 @@ local function safeCreate(className, parent, props)
     return nil
 end
 
--- Constrói toda a interface
 local function buildUI()
     if INSTANCE then return INSTANCE end
 
@@ -58,7 +52,6 @@ local function buildUI()
         return nil
     end
 
-    -- Tamanho da tela para centralização inicial
     local screenSize = Vector2.new(1920, 1080)
     pcall(function()
         local cam = Workspace.CurrentCamera
@@ -79,13 +72,12 @@ local function buildUI()
         BackgroundColor3 = Color3.fromRGB(22, 22, 28),
         BackgroundTransparency = 0,
         BorderSizePixel = 0,
-        Visible = false,
-        -- AnchorPoint removido: o canto superior esquerdo fica fixo ao redimensionar
+        Visible = false
     })
     if not main then return nil end
 
-    local corner = safeCreate("UICorner", main, { CornerRadius = UDim.new(0, 10) })
-    local stroke = safeCreate("UIStroke", main, {
+    safeCreate("UICorner", main, { CornerRadius = UDim.new(0, 10) })
+    safeCreate("UIStroke", main, {
         Color = Color3.fromRGB(70, 70, 90),
         Thickness = 1.5
     })
@@ -99,9 +91,9 @@ local function buildUI()
     })
     if not topbar then return nil end
 
-    local topCorner = safeCreate("UICorner", topbar, { CornerRadius = UDim.new(0, 10) })
+    safeCreate("UICorner", topbar, { CornerRadius = UDim.new(0, 10) })
 
-    local title = safeCreate("TextLabel", topbar, {
+    safeCreate("TextLabel", topbar, {
         Name = "TitleLabel",
         Size = UDim2.new(1, -80, 1, 0),
         Position = UDim2.new(0, 12, 0, 0),
@@ -113,7 +105,7 @@ local function buildUI()
         TextSize = 18
     })
 
-    local desc = safeCreate("TextLabel", topbar, {
+    safeCreate("TextLabel", topbar, {
         Name = "DescLabel",
         Size = UDim2.new(1, -80, 0, 16),
         Position = UDim2.new(0, 12, 0, 24),
@@ -140,7 +132,7 @@ local function buildUI()
         BorderSizePixel = 0
     })
     if closeBtn then
-        local closeCorner = safeCreate("UICorner", closeBtn, { CornerRadius = UDim.new(0, 6) })
+        safeCreate("UICorner", closeBtn, { CornerRadius = UDim.new(0, 6) })
         closeBtn.MouseButton1Click:Connect(function()
             Console:Hide()
         end)
@@ -156,7 +148,7 @@ local function buildUI()
     })
     if not content then return nil end
 
-    local contentCorner = safeCreate("UICorner", content, { CornerRadius = UDim.new(0, 6) })
+    safeCreate("UICorner", content, { CornerRadius = UDim.new(0, 6) })
 
     local scroll = safeCreate("ScrollingFrame", content, {
         Name = "Output",
@@ -176,7 +168,6 @@ local function buildUI()
         Padding = UDim.new(0, 2)
     })
     if layout then
-        -- Rola automaticamente para o final quando novo conteúdo é adicionado
         layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
             local h = layout.AbsoluteContentSize.Y
             if h > 0 then
@@ -186,7 +177,6 @@ local function buildUI()
         end)
     end
 
-    -- Alça de redimensionamento
     local resize = safeCreate("Frame", main, {
         Name = "ResizeHandle",
         Size = UDim2.new(0, 20, 0, 20),
@@ -197,9 +187,9 @@ local function buildUI()
         ZIndex = 10
     })
     if resize then
-        local resizeCorner = safeCreate("UICorner", resize, { CornerRadius = UDim.new(0, 4) })
+        safeCreate("UICorner", resize, { CornerRadius = UDim.new(0, 4) })
         for i = 1, 3 do
-            local bar = safeCreate("Frame", resize, {
+            safeCreate("Frame", resize, {
                 Size = UDim2.new(0, 10, 0, 1.5),
                 Position = UDim2.new(0.5, -5, 0, 2 + (i - 1) * 5),
                 BackgroundColor3 = Color3.fromRGB(200, 200, 220),
@@ -208,17 +198,10 @@ local function buildUI()
         end
     end
 
-    -- Variáveis de arrasto
     local dragging = false
     local dragStart = nil
-    local dragStartPos = nil -- posição original do main (canto superior esquerdo)
+    local dragStartPos = nil
 
-    -- Variáveis de redimensionamento
-    local resizing = false
-    local resizeStart = nil
-    local resizeStartSize = nil -- tamanho original
-
-    -- Eventos de arrasto na barra superior
     topbar.InputBegan:Connect(function(input, gpe)
         if gpe then return end
         if input.UserInputType == Enum.UserInputType.MouseButton1 then
@@ -234,7 +217,10 @@ local function buildUI()
         end
     end)
 
-    -- Eventos de redimensionamento na alça
+    local resizing = false
+    local resizeStart = nil
+    local resizeStartSize = nil
+
     if resize then
         resize.InputBegan:Connect(function(input, gpe)
             if gpe then return end
@@ -252,7 +238,6 @@ local function buildUI()
         end)
     end
 
-    -- Listener unificado de movimento do mouse
     if inputConnection then
         inputConnection:Disconnect()
     end
@@ -269,7 +254,6 @@ local function buildUI()
             local newW = math.max(400, resizeStartSize.X.Offset + delta.X)
             local newH = math.max(300, resizeStartSize.Y.Offset + delta.Y)
             main.Size = UDim2.new(0, newW, 0, newH)
-            -- Como AnchorPoint é (0,0), o canto superior esquerdo permanece fixo
         end
     end)
 
@@ -280,7 +264,6 @@ local function buildUI()
     return gui
 end
 
--- Funções auxiliares internas
 local function getMainFrame()
     if not INSTANCE then return nil end
     return INSTANCE:FindFirstChild("MainFrame")
@@ -311,12 +294,11 @@ local function addMessage(text, color, withTimestamp)
         timestamp = os.date("[%H:%M:%S] ")
     end
 
-    -- Criação segura do rótulo, agora com altura automática
     local ok, label = pcall(function()
         local lbl = Instance.new("TextLabel")
         lbl.Name = "Message"
-        lbl.Size = UDim2.new(1, -6, 0, 0)            -- altura 0, se expandirá automaticamente
-        lbl.AutomaticSize = Enum.AutomaticSize.Y      -- ajusta a altura ao texto
+        lbl.Size = UDim2.new(1, -6, 0, 0)
+        lbl.AutomaticSize = Enum.AutomaticSize.Y
         lbl.BackgroundTransparency = 1
         lbl.Text = timestamp .. tostring(text)
         lbl.TextColor3 = color or Color3.fromRGB(200, 200, 210)
@@ -332,10 +314,8 @@ local function addMessage(text, color, withTimestamp)
     if not ok then
         warn("[Console] Erro ao criar mensagem:", label)
     end
-    -- A rolagem e o CanvasSize são atualizados automaticamente pelo listener de AbsoluteContentSize
 end
 
--- Métodos públicos do Console
 function Console:Show()
     if not INSTANCE then
         buildUI()
@@ -440,16 +420,14 @@ function Console:Clear()
     output.CanvasSize = UDim2.new(0, 0, 0, 0)
 end
 
--- Wrapper seguro com recuperação limitada
 local function safeWrapper(func)
     return function(...)
         local ok, err = pcall(func, ...)
         if not ok then
             warn("[Console] Erro interno:", err, debug.traceback())
-            -- Tentativa de reconstrução apenas se a UI foi corrompida
             if type(err) == "string" and (err:find("UI") or err:find("Parent") or err:find("Visible") or err:find("UDim2") or err:find("Offset") or err:find("Size")) then
                 local now = tick()
-                if now - lastRebuildTime > 5 then  -- throttle de 5 segundos
+                if now - lastRebuildTime > 5 then
                     lastRebuildTime = now
                     INSTANCE = nil
                     isVisible = false
