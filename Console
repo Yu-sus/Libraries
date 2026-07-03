@@ -1,5 +1,6 @@
 local Console = {}
 
+-- Serviço seguro com suporte a cloneref
 local function getService(name)
     local svc = game:GetService(name)
     if cloneref then return cloneref(svc) end
@@ -10,12 +11,19 @@ local CoreGui = getService("CoreGui")
 local Players = getService("Players")
 local TweenService = getService("TweenService")
 local UserInputService = getService("UserInputService")
+local Workspace = getService("Workspace")
 
+-- Variáveis internas
 local INSTANCE = nil
 local isVisible = false
 local titleText = "Secure Console"
 local descriptionText = ""
 
+-- Controle de listeners
+local inputConnection = nil
+local lastRebuildTime = 0
+
+-- Helper para obter parent adequado
 local function getUIParent()
     if CoreGui and CoreGui.Parent then return CoreGui end
     local plr = Players.LocalPlayer
@@ -23,6 +31,7 @@ local function getUIParent()
     return nil
 end
 
+-- Criação segura de instâncias
 local function safeCreate(className, parent, props)
     local ok, obj = pcall(function()
         local inst = Instance.new(className)
@@ -39,14 +48,22 @@ local function safeCreate(className, parent, props)
     return nil
 end
 
+-- Constrói toda a interface
 local function buildUI()
     if INSTANCE then return INSTANCE end
 
     local parent = getUIParent()
     if not parent then
-        warn("[Console] Nenhum parente disponível.")
+        warn("[Console] Nenhum parent disponível.")
         return nil
     end
+
+    -- Tamanho da tela para centralização inicial
+    local screenSize = Vector2.new(1920, 1080)
+    pcall(function()
+        local cam = Workspace.CurrentCamera
+        if cam then screenSize = cam.ViewportSize end
+    end)
 
     local gui = safeCreate("ScreenGui", parent, {
         Name = "SecureConsoleUI",
@@ -58,12 +75,12 @@ local function buildUI()
     local main = safeCreate("Frame", gui, {
         Name = "MainFrame",
         Size = UDim2.new(0, 700, 0, 500),
-        Position = UDim2.fromScale(0.5, 0.5),
-        AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = UDim2.new(0, (screenSize.X - 700) / 2, 0, (screenSize.Y - 500) / 2),
         BackgroundColor3 = Color3.fromRGB(22, 22, 28),
         BackgroundTransparency = 0,
         BorderSizePixel = 0,
-        Visible = false
+        Visible = false,
+        -- AnchorPoint removido: o canto superior esquerdo fica fixo ao redimensionar
     })
     if not main then return nil end
 
@@ -159,6 +176,7 @@ local function buildUI()
         Padding = UDim.new(0, 2)
     })
     if layout then
+        -- Rola automaticamente para o final quando novo conteúdo é adicionado
         layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
             local h = layout.AbsoluteContentSize.Y
             if h > 0 then
@@ -168,6 +186,7 @@ local function buildUI()
         end)
     end
 
+    -- Alça de redimensionamento
     local resize = safeCreate("Frame", main, {
         Name = "ResizeHandle",
         Size = UDim2.new(0, 20, 0, 20),
@@ -182,23 +201,30 @@ local function buildUI()
         for i = 1, 3 do
             local bar = safeCreate("Frame", resize, {
                 Size = UDim2.new(0, 10, 0, 1.5),
-                Position = UDim2.new(0.5, -5, 0, 2 + (i-1)*5),
+                Position = UDim2.new(0.5, -5, 0, 2 + (i - 1) * 5),
                 BackgroundColor3 = Color3.fromRGB(200, 200, 220),
                 BorderSizePixel = 0
             })
         end
     end
 
+    -- Variáveis de arrasto
     local dragging = false
     local dragStart = nil
-    local dragOffset = nil
+    local dragStartPos = nil -- posição original do main (canto superior esquerdo)
 
+    -- Variáveis de redimensionamento
+    local resizing = false
+    local resizeStart = nil
+    local resizeStartSize = nil -- tamanho original
+
+    -- Eventos de arrasto na barra superior
     topbar.InputBegan:Connect(function(input, gpe)
         if gpe then return end
         if input.UserInputType == Enum.UserInputType.MouseButton1 then
             dragging = true
             dragStart = input.Position
-            dragOffset = main.Position
+            dragStartPos = main.Position
         end
     end)
 
@@ -208,17 +234,14 @@ local function buildUI()
         end
     end)
 
-    local resizing = false
-    local resizeStart = nil
-    local resizeOrigin = nil
-
+    -- Eventos de redimensionamento na alça
     if resize then
         resize.InputBegan:Connect(function(input, gpe)
             if gpe then return end
             if input.UserInputType == Enum.UserInputType.MouseButton1 then
                 resizing = true
                 resizeStart = input.Position
-                resizeOrigin = {main.Size.X.Offset, main.Size.Y.Offset}
+                resizeStartSize = main.Size
             end
         end)
 
@@ -229,19 +252,24 @@ local function buildUI()
         end)
     end
 
-    UserInputService.InputChanged:Connect(function(input)
+    -- Listener unificado de movimento do mouse
+    if inputConnection then
+        inputConnection:Disconnect()
+    end
+    inputConnection = UserInputService.InputChanged:Connect(function(input)
         if input.UserInputType ~= Enum.UserInputType.MouseMovement then return end
 
-        if dragging and dragStart and dragOffset then
+        if dragging and dragStart and dragStartPos then
             local delta = input.Position - dragStart
-            local newX = math.floor(dragOffset.X.Offset + delta.X)
-            local newY = math.floor(dragOffset.Y.Offset + delta.Y)
+            local newX = math.floor(dragStartPos.X.Offset + delta.X)
+            local newY = math.floor(dragStartPos.Y.Offset + delta.Y)
             main.Position = UDim2.new(0, newX, 0, newY)
-        elseif resizing and resizeOrigin and resizeStart then
+        elseif resizing and resizeStartSize and resizeStart then
             local delta = input.Position - resizeStart
-            local newW = math.max(400, resizeOrigin[1] + delta.X)
-            local newH = math.max(300, resizeOrigin[2] + delta.Y)
+            local newW = math.max(400, resizeStartSize.X.Offset + delta.X)
+            local newH = math.max(300, resizeStartSize.Y.Offset + delta.Y)
             main.Size = UDim2.new(0, newW, 0, newH)
+            -- Como AnchorPoint é (0,0), o canto superior esquerdo permanece fixo
         end
     end)
 
@@ -252,6 +280,7 @@ local function buildUI()
     return gui
 end
 
+-- Funções auxiliares internas
 local function getMainFrame()
     if not INSTANCE then return nil end
     return INSTANCE:FindFirstChild("MainFrame")
@@ -265,12 +294,6 @@ local function getOutput()
     return content:FindFirstChild("Output")
 end
 
-local function getLayout()
-    local output = getOutput()
-    if not output then return nil end
-    return output:FindFirstChild("MessageLayout")
-end
-
 local function addMessage(text, color, withTimestamp)
     if not INSTANCE then
         buildUI()
@@ -278,9 +301,8 @@ local function addMessage(text, color, withTimestamp)
     end
 
     local output = getOutput()
-    local layout = getLayout()
-    if not output or not layout then
-        warn("[Console] UI não completamente inicializada.")
+    if not output then
+        warn("[Console] Output não encontrado.")
         return
     end
 
@@ -289,27 +311,31 @@ local function addMessage(text, color, withTimestamp)
         timestamp = os.date("[%H:%M:%S] ")
     end
 
-    local label = Instance.new("TextLabel")
-    label.Name = "Message"
-    label.Size = UDim2.new(1, -6, 0, 20)
-    label.BackgroundTransparency = 1
-    label.Text = timestamp .. text
-    label.TextColor3 = color or Color3.fromRGB(200, 200, 210)
-    label.TextXAlignment = Enum.TextXAlignment.Left
-    label.Font = Enum.Font.Gotham
-    label.TextSize = 14
-    label.TextWrapped = true
-    label.TextTruncate = Enum.TextTruncate.None
-    label.Parent = output
+    -- Criação segura do rótulo, agora com altura automática
+    local ok, label = pcall(function()
+        local lbl = Instance.new("TextLabel")
+        lbl.Name = "Message"
+        lbl.Size = UDim2.new(1, -6, 0, 0)            -- altura 0, se expandirá automaticamente
+        lbl.AutomaticSize = Enum.AutomaticSize.Y      -- ajusta a altura ao texto
+        lbl.BackgroundTransparency = 1
+        lbl.Text = timestamp .. tostring(text)
+        lbl.TextColor3 = color or Color3.fromRGB(200, 200, 210)
+        lbl.TextXAlignment = Enum.TextXAlignment.Left
+        lbl.Font = Enum.Font.Gotham
+        lbl.TextSize = 14
+        lbl.TextWrapped = true
+        lbl.TextTruncate = Enum.TextTruncate.None
+        lbl.Parent = output
+        return lbl
+    end)
 
-    task.wait()
-    local h = layout.AbsoluteContentSize.Y
-    if h > 0 then
-        output.CanvasSize = UDim2.new(0, 0, 0, h + 8)
-        output.CanvasPosition = Vector2.new(0, h)
+    if not ok then
+        warn("[Console] Erro ao criar mensagem:", label)
     end
+    -- A rolagem e o CanvasSize são atualizados automaticamente pelo listener de AbsoluteContentSize
 end
 
+-- Métodos públicos do Console
 function Console:Show()
     if not INSTANCE then
         buildUI()
@@ -414,15 +440,25 @@ function Console:Clear()
     output.CanvasSize = UDim2.new(0, 0, 0, 0)
 end
 
+-- Wrapper seguro com recuperação limitada
 local function safeWrapper(func)
     return function(...)
         local ok, err = pcall(func, ...)
         if not ok then
             warn("[Console] Erro interno:", err, debug.traceback())
-            if type(err) == "string" and (string.find(err, "UI") or string.find(err, "Parent") or string.find(err, "Visible") or string.find(err, "UDim2") or string.find(err, "Offset") or string.find(err, "Size")) then
-                INSTANCE = nil
-                isVisible = false
-                buildUI()
+            -- Tentativa de reconstrução apenas se a UI foi corrompida
+            if type(err) == "string" and (err:find("UI") or err:find("Parent") or err:find("Visible") or err:find("UDim2") or err:find("Offset") or err:find("Size")) then
+                local now = tick()
+                if now - lastRebuildTime > 5 then  -- throttle de 5 segundos
+                    lastRebuildTime = now
+                    INSTANCE = nil
+                    isVisible = false
+                    if inputConnection then
+                        inputConnection:Disconnect()
+                        inputConnection = nil
+                    end
+                    buildUI()
+                end
             end
         end
     end
