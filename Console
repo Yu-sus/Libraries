@@ -55,11 +55,11 @@ local function buildUI()
     })
     if not gui then return nil end
 
+    -- Sem AnchorPoint para facilitar o arrasto
     local main = safeCreate("Frame", gui, {
         Name = "MainFrame",
         Size = UDim2.new(0, 700, 0, 500),
         Position = UDim2.new(0.5, -350, 0.5, -250),
-        AnchorPoint = Vector2.new(0.5, 0.5),
         BackgroundColor3 = Color3.fromRGB(22, 22, 28),
         BackgroundTransparency = 0,
         BorderSizePixel = 0,
@@ -73,12 +73,11 @@ local function buildUI()
         Thickness = 1.5
     })
 
-    -- UIShadow com Offset UDim2
+    -- UIShadow: Offset é UDim2, sem Size
     local shadow = safeCreate("UIShadow", main, {
         Color = Color3.fromRGB(0, 0, 0),
         Transparency = 0.6,
-        Offset = UDim2.new(0, 0, 0, 6),
-        Size = 20
+        Offset = UDim2.new(0, 0, 0, 6)
     })
 
     local topbar = safeCreate("Frame", main, {
@@ -197,7 +196,7 @@ local function buildUI()
         end
     end
 
-    -- Drag logic
+    -- Drag logic (corrigido)
     local dragging = false
     local dragStart = nil
     local dragOffset = nil
@@ -240,22 +239,25 @@ local function buildUI()
     end
 
     UserInputService.InputChanged:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseMovement then
-            if dragging and dragOffset then
-                local delta = input.Position - dragStart
-                local x = math.floor(dragOffset.X.Offset + delta.X)
-                local y = math.floor(dragOffset.Y.Offset + delta.Y)
-                main.Position = UDim2.new(0, x, 0, y)
-            elseif resizing and resizeOrigin then
-                local delta = input.Position - resizeStart
-                local w = math.max(400, resizeOrigin[1] + delta.X)
-                local h = math.max(300, resizeOrigin[2] + delta.Y)
-                main.Size = UDim2.new(0, w, 0, h)
-            end
+        if input.UserInputType ~= Enum.UserInputType.MouseMovement then return end
+
+        if dragging and dragStart and dragOffset then
+            local delta = input.Position - dragStart
+            local newX = math.floor(dragOffset.X.Offset + delta.X)
+            local newY = math.floor(dragOffset.Y.Offset + delta.Y)
+            main.Position = UDim2.new(0, newX, 0, newY)
+        elseif resizing and resizeOrigin and resizeStart then
+            local delta = input.Position - resizeStart
+            local newW = math.max(400, resizeOrigin[1] + delta.X)
+            local newH = math.max(300, resizeOrigin[2] + delta.Y)
+            main.Size = UDim2.new(0, newW, 0, newH)
         end
     end)
 
     topbar.ZIndex = 5
+
+    -- Centraliza após criação (caso a posição inicial seja alterada)
+    main.Position = UDim2.new(0.5, -main.Size.X.Offset/2, 0.5, -main.Size.Y.Offset/2)
 
     INSTANCE = gui
     isVisible = false
@@ -429,7 +431,7 @@ local function safeWrapper(func)
         local ok, err = pcall(func, ...)
         if not ok then
             warn("[Console] Erro interno:", err, debug.traceback())
-            if type(err) == "string" and (string.find(err, "UI") or string.find(err, "Parent") or string.find(err, "Visible") or string.find(err, "UDim2") or string.find(err, "Offset")) then
+            if type(err) == "string" and (string.find(err, "UI") or string.find(err, "Parent") or string.find(err, "Visible") or string.find(err, "UDim2") or string.find(err, "Offset") or string.find(err, "Size")) then
                 INSTANCE = nil
                 isVisible = false
                 buildUI()
